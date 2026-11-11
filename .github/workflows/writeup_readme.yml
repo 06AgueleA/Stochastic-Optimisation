@@ -19,7 +19,7 @@ jobs:
       QUALITY: 85
       DPI: 250
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
       with:
         persist-credentials: false
         fetch-depth: 0
