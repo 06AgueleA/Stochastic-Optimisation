@@ -22,11 +22,25 @@ jobs:
         persist-credentials: false
         fetch-depth: 0
 
-    ## CONVERT THE ACTUAL IMAGES
+    ## INSTALL DELEGATES FOR PDF CONVERSION
+    - name: Install Ghostscript and Poppler Utilities
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y ghostscript poppler-utils imagemagick
+        
+        # Fix Ubuntu security policy that blocks ImageMagick from reading PDFs
+        sudo sed -i 's/domain="coder" rights="none" pattern="PDF"/domain="coder" rights="read|write" pattern="PDF"/' /etc/ImageMagick-6/policy.xml
+
+    ## CONVERT THE ACTUAL IMAGES USING NATIVE TOOLS
     - name: Convert Writeup to Images
-      uses: jruipinto/ImageMagick-action@v1
-      with:
-        command: convert -density ${{env.DPI}} -trim -colorspace sRGB -alpha remove writeup.pdf -quality ${{env.QUALITY}} output-%03d.jpg
+      run: |
+        pdftoppm -png -r ${{env.DPI}} writeup.pdf output
+        
+        # Convert output PNGs to compressed JPGs using native ImageMagick
+        for f in output-*.png; do
+          convert "$f" -trim -colorspace sRGB -alpha remove -quality ${{env.QUALITY}} "${f%.png}.jpg"
+          rm "$f"
+        done
 
     ## COMMIT THEM TO AN ORPHAN BRANCH
     - name: Commit images to orphan branch
@@ -58,7 +72,6 @@ jobs:
         rm -f README.md
         mv .README.temp README.md
         
-        # Check for changes safely
         if git diff --exit-code README.md; then
           echo "changed=0" >> "$GITHUB_OUTPUT"
         else
