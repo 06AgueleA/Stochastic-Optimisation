@@ -22,24 +22,29 @@ jobs:
         persist-credentials: false
         fetch-depth: 0
 
-    ## INSTALL DELEGATES FOR PDF CONVERSION
+    ## INSTALL DELEGATES SILENTLY WITHOUT PROMPTS
     - name: Install Ghostscript and Poppler Utilities
+      env:
+        DEBIAN_FRONTEND: noninteractive
       run: |
         sudo apt-get update
-        sudo apt-get install -y ghostscript poppler-utils imagemagick
+        sudo apt-get install -y -q --no-install-recommends ghostscript poppler-utils imagemagick
         
-        # Fix Ubuntu security policy that blocks ImageMagick from reading PDFs
-        sudo sed -i 's/domain="coder" rights="none" pattern="PDF"/domain="coder" rights="read|write" pattern="PDF"/' /etc/ImageMagick-6/policy.xml
+        # Overwrite the security policy configuration blocking PDF extraction
+        sudo sed -i 's/domain="coder" rights="none" pattern="PDF"/domain="coder" rights="read|write" pattern="PDF"/' /etc/ImageMagick-6/policy.xml || true
+        sudo sed -i 's/domain="coder" rights="none" pattern="PDF"/domain="coder" rights="read|write" pattern="PDF"/' /etc/ImageMagick-7/policy.xml || true
 
-    ## CONVERT THE ACTUAL IMAGES USING NATIVE TOOLS
+    ## EXTRACT AND CONVERT IMAGES NATIVELY
     - name: Convert Writeup to Images
       run: |
         pdftoppm -png -r ${{env.DPI}} writeup.pdf output
         
-        # Convert output PNGs to compressed JPGs using native ImageMagick
+        # Compress the extracted PNGs into clean portfolio JPG assets
         for f in output-*.png; do
-          convert "$f" -trim -colorspace sRGB -alpha remove -quality ${{env.QUALITY}} "${f%.png}.jpg"
-          rm "$f"
+          if [ -f "$f" ]; then
+            convert "$f" -trim -colorspace sRGB -alpha remove -quality ${{env.QUALITY}} "${f%.png}.jpg"
+            rm "$f"
+          fi
         done
 
     ## COMMIT THEM TO AN ORPHAN BRANCH
@@ -48,11 +53,13 @@ jobs:
         git checkout --orphan ${{env.ORPHAN_BRANCH}}
         touch .README.md
         mv .README.md .README.temp
-        git rm -rf .
-        git add *.jpg
+        git rm -rf . --cached || true
+        rm -rf *
+        git add *.jpg || true
         git config --local user.email "action@github.com"
         git config --local user.name "GithubActions"
-        git commit -m "Updated writeup images" -a
+        git commit -m "Updated writeup images" -a || echo "No image changes to commit"
+        
     - name: Push images to orphan branch
       uses: ad-m/github-push-action@master
       with:
@@ -60,7 +67,7 @@ jobs:
         branch: ${{ env.ORPHAN_BRANCH }}
         force: true
 
-    ## UPDATE README IN BRANCH IF IT NEEDS TO BE UPDATED
+    ## REBUILD OVERVIEW PAGE
     - name: Update Readme
       id: main
       run: |
@@ -68,7 +75,7 @@ jobs:
         for filename in *.jpg; do \
           echo '!(https://github.com{{env.ORPHAN_BRANCH}}/'$filename'?raw=true)' >> .README.temp;  \
         done
-        git checkout ${{ github.ref }}
+        git checkout main
         rm -f README.md
         mv .README.temp README.md
         
@@ -90,4 +97,4 @@ jobs:
       uses: ad-m/github-push-action@master
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
-        branch: ${{ github.ref }}
+        branch: main
