@@ -30,54 +30,76 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y -q --no-install-recommends ghostscript poppler-utils imagemagick
         
-        # Overwrite the security policy configuration blocking PDF extraction
+        # Overwrite security policies blocking PDF manipulation
         sudo sed -i 's/domain="coder" rights="none" pattern="PDF"/domain="coder" rights="read|write" pattern="PDF"/' /etc/ImageMagick-6/policy.xml || true
         sudo sed -i 's/domain="coder" rights="none" pattern="PDF"/domain="coder" rights="read|write" pattern="PDF"/' /etc/ImageMagick-7/policy.xml || true
 
-    ## EXTRACT AND CONVERT IMAGES NATIVELY
+    ## EXTRACT AND CONVERT IMAGES TO A TEMPORARY FOLDER
     - name: Convert Writeup to Images
       run: |
-        pdftoppm -png -r ${{env.DPI}} writeup.pdf output
+        mkdir -p /tmp/artifacts
         
-        # Compress the extracted PNGs into clean portfolio JPG assets
-        for f in output-*.png; do
+        # Save baseline README if it exists
+        if [ -f ".README.md" ]; then
+          cp .README.md /tmp/artifacts/.README.md
+        fi
+        
+        # Convert PDF pages to PNG
+        pdftoppm -png -r ${{env.DPI}} writeup.pdf /tmp/artifacts/page
+        
+        # Convert PNGs to optimized JPGs
+        for f in /tmp/artifacts/page-*.png; do
           if [ -f "$f" ]; then
             convert "$f" -trim -colorspace sRGB -alpha remove -quality ${{env.QUALITY}} "${f%.png}.jpg"
             rm "$f"
           fi
         done
 
-    ## COMMIT THEM TO AN ORPHAN BRANCH
-    - name: Commit images to orphan branch
+    ## COMMIT AND PUSH IMAGES TO THE ORPHAN BRANCH
+    - name: Push images to orphan branch
       run: | 
         git checkout --orphan ${{env.ORPHAN_BRANCH}}
-        touch .README.md
-        mv .README.md .README.temp
         git rm -rf . --cached || true
         rm -rf *
-        git add *.jpg || true
+        
+        # Bring back the generated JPG images safely
+        cp /tmp/artifacts/page-*.jpg .
+        
         git config --local user.email "action@github.com"
         git config --local user.name "GithubActions"
-        git commit -m "Updated writeup images" -a || echo "No image changes to commit"
+        git add *.jpg
+        git commit -m "Updated writeup images"
         
-    - name: Push images to orphan branch
+    - name: Push orphan branch refs
       uses: ad-m/github-push-action@master
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
         branch: ${{ env.ORPHAN_BRANCH }}
         force: true
 
-    ## REBUILD OVERVIEW PAGE
-    - name: Update Readme
-      id: main
+    ## REBUILD OVERVIEW PAGE ON MAIN BRANCH
+    - name: Update Readme on Main
+      id: readme_step
       run: |
-        echo $'\n' >> .README.temp
-        for filename in *.jpg; do \
-          echo '!(https://github.com{{env.ORPHAN_BRANCH}}/'$filename'?raw=true)' >> .README.temp;  \
-        done
         git checkout main
+        
+        # Start constructing the new README content
         rm -f README.md
-        mv .README.temp README.md
+        touch README.md
+        
+        # Append baseline text if it existed
+        if [ -f "/tmp/artifacts/.README.md" ]; then
+          cat /tmp/artifacts/.README.md >> README.md
+          echo $'\n' >> README.md
+        fi
+        
+        # Generate markdown image handles dynamically based on files in /tmp/artifacts
+        for filepath in /tmp/artifacts/page-*.jpg; do
+          if [ -f "$filepath" ]; then
+            filename=$(basename "$filepath")
+            echo "!image" >> README.md
+          fi
+        done
         
         if git diff --exit-code README.md; then
           echo "changed=0" >> "$GITHUB_OUTPUT"
@@ -86,14 +108,14 @@ jobs:
         fi
         
     - name: Commit new README (if changed)
-      if: steps.main.outputs.changed == '1'
+      if: steps.readme_step.outputs.changed == '1'
       run: |
         git add README.md
         git config --local user.email "action@github.com"
         git config --local user.name "GithubActions"
-        git commit -m "Updated Readme" -a
+        git commit -m "Updated Readme with writeup links" -a
         
-    - name: Push changes
+    - name: Push changes to main
       uses: ad-m/github-push-action@master
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
