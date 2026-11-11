@@ -5,7 +5,7 @@ name: Writeup-Readme
 on:
   push:
     branches: 
-      - 'master'
+      - 'main'
     paths:
       - 'writeup.pdf'
       - '.README.md'
@@ -42,7 +42,7 @@ jobs:
         git config --local user.name "GithubActions"
         git commit -m "Updated writeup images" -a
     - name: Push images to orphan branch
-      uses: ad-m/github-push-action@master
+      uses: ad-m/github-push-action@main
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
         branch: ${{ env.ORPHAN_BRANCH }}
@@ -70,7 +70,7 @@ jobs:
         git config --local user.name "GithubActions"
         git commit -m "Updated Readme" -a
     - name: Push changes
-      uses: ad-m/github-push-action@master
+      uses: ad-m/github-push-action@main
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
         branch: ${{ github.ref }}
